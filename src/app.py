@@ -2,126 +2,239 @@ from utils import db_connect
 engine = db_connect()
 
 
+# Paso 1: Carga del conjunto de datos
+#Importamos las librerías necesarias y cargamos el dataset de seguros médicos directamente desde la URL.
+
+# ── Importamos las librerías que vamos a necesitar en todo el proyecto ──
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-archivo = "https://breathecode.herokuapp.com/asset/internal-link?id=929&path=medical_insurance_cost.csv"
+print("✅ Librerías importadas correctamente")
 
-df = pd.read_csv(archivo)
+# ── URL del dataset ──
+url = "https://breathecode.herokuapp.com/asset/internal-link?id=929&path=medical_insurance_cost.csv"
 
-print("--- Primeras 5 filas ---")
-print(df.head())
+# ── Cargamos el dataset en un DataFrame ──
+df = pd.read_csv(url)
 
-print("\n--- Tamaño del dataset (Filas, Columnas) ---")
-print(df.shape)
-
-print("\n--- Tipos de datos y nulos ---")
+print("✅ Dataset cargado correctamente")
+print(f"📊 Filas: {df.shape[0]} | Columnas: {df.shape[1]}")
+df.head()
+# ── Información general del dataset ──
+print("📋 Información del dataset:")
+print("-" * 40)
 df.info()
 
+# ── Estadísticas descriptivas básicas ──
+print("📊 Estadísticas descriptivas:")
+df.describe()
 
-print("--- Resumen Estadístico ---")
-display(df.describe()) 
+# ── Comprobamos si hay valores nulos ──
+print("🔍 Valores nulos por columna:")
+print(df.isnull().sum())
+print()
 
+# ── Comprobamos si hay filas duplicadas ──
 duplicados = df.duplicated().sum()
-print(f"\n--- Número de filas duplicadas: {duplicados} ---")
+print(f"🔁 Filas duplicadas: {duplicados}")
+print()
 
-if duplicados > 0:
-    df = df.drop_duplicates()
-    print("¡Filas duplicadas eliminadas exitosamente!")
+# ── Tipos de datos de cada columna ──
+print("🏷️  Tipos de datos:")
+print(df.dtypes)
 
-plt.figure(figsize=(14, 5))
-
-plt.subplot(1, 2, 1)
-sns.histplot(df['charges'], kde=True, color='teal')
-plt.title('Distribución de los Costos Médicos')
-plt.xlabel('Costo ($)')
+# distribucion de charges (lo que queremos predecir)
+plt.figure(figsize=(10, 5))
+plt.hist(df['charges'], bins=50, color='#FF6B6B', edgecolor='white')
+plt.title('Distribución de las primas del seguro')
+plt.xlabel('Charges ($)')
 plt.ylabel('Frecuencia')
+plt.show()
 
-plt.subplot(1, 2, 2)
-sns.boxplot(x='smoker', y='charges', data=df, palette='Set2', hue='smoker', legend=False)
-plt.title('Costo Médico: Fumadores vs No Fumadores')
-plt.xlabel('¿Es fumador?')
-plt.ylabel('Costo ($)')
+# histogramas de todas las variables numericas
+colores = ['#FF6B6B', '#FFE66D', '#4ECDC4', '#A855F7']
+numericas = ['age', 'bmi', 'children', 'charges']
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+axes = axes.flatten()
+
+for i, col in enumerate(numericas):
+    axes[i].hist(df[col], bins=30, color=colores[i], edgecolor='white')
+    axes[i].set_title(col)
 
 plt.tight_layout()
 plt.show()
 
-df_procesado = pd.get_dummies(df, columns=['sex', 'smoker', 'region'], drop_first=True)
+# conteo de variables categoricas
+categoricas = ['sex', 'smoker', 'region']
+colores_cat = ['#FF6B6B', '#4ECDC4', '#FFE66D']
 
-print("--- Dataset Procesado (Solo Números) ---")
-display(df_procesado.head())
+fig, axes = plt.subplots(1, 3, figsize=(14, 5))
 
-plt.figure(figsize=(10, 6))
-sns.heatmap(df_procesado.corr(), annot=True, cmap='coolwarm', fmt=".2f")
-plt.title('Mapa de Correlación: ¿Qué influye más en el costo?')
+for i, col in enumerate(categoricas):
+    conteo = df[col].value_counts()
+    axes[i].bar(conteo.index, conteo.values, color=colores_cat[i], edgecolor='white')
+    axes[i].set_title(col)
+
+plt.tight_layout()
 plt.show()
 
+# mapa de correlacion
+plt.figure(figsize=(8, 6))
+sns.heatmap(df[['age', 'bmi', 'children', 'charges']].corr(),
+            annot=True, cmap='coolwarm', fmt='.2f')
+plt.title('Correlación entre variables numéricas')
+plt.show()
+
+# como afecta ser fumador al precio
+plt.figure(figsize=(8, 5))
+sns.boxplot(x='smoker', y='charges', data=df,
+            palette={'yes': '#FF6B6B', 'no': '#4ECDC4'})
+plt.title('Charges según fumador')
+plt.show()
+
+# precio por region
+plt.figure(figsize=(8, 5))
+sns.boxplot(x='region', y='charges', data=df,
+            palette=['#FF6B6B', '#FFE66D', '#4ECDC4', '#A855F7'])
+plt.title('Charges según región')
+plt.show()
+
+# relacion entre edad y precio, separando fumadores
+plt.figure(figsize=(9, 6))
+sns.scatterplot(x='age', y='charges', hue='smoker', data=df,
+                palette={'yes': '#FF6B6B', 'no': '#4ECDC4'}, alpha=0.7)
+plt.title('Edad vs Charges (por fumador)')
+plt.show()
+
+# relacion entre bmi y precio
+plt.figure(figsize=(9, 6))
+sns.scatterplot(x='bmi', y='charges', hue='smoker', data=df,
+                palette={'yes': '#FF6B6B', 'no': '#4ECDC4'}, alpha=0.7)
+plt.title('BMI vs Charges (por fumador)')
+plt.show()
 
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
 
-X = df_procesado.drop('charges', axis=1)
+# separo variables X e y
+X = df.drop(columns='charges')
+y = df['charges']
 
-y = df_procesado['charges']
+# divido en train y test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+print(f"Train: {X_train.shape[0]} filas")
+print(f"Test:  {X_test.shape[0]} filas")
+
+# paso 3: 
+# convierto las columnas de texto a numeros con get_dummies
+df_modelo = pd.get_dummies(df, columns=['sex', 'smoker', 'region'], drop_first=True)
+df_modelo.head()
+
+# separo lo que quiero predecir (y) del resto (X)
+X = df_modelo.drop(columns='charges')
+y = df_modelo['charges']
+
+from sklearn.model_selection import train_test_split
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-print(f"Datos para entrenar: {X_train.shape[0]} filas")
-print(f"Datos para probar: {X_test.shape[0]} filas")
+print(f"Train: {X_train.shape[0]} filas")
+print(f"Test:  {X_test.shape[0]} filas")
 
-modelo_regresion = LinearRegression()
+from sklearn.linear_model import LinearRegression
 
-modelo_regresion.fit(X_train, y_train)
-print("\n¡El modelo ha sido entrenado con éxito!")
+modelo = LinearRegression()
+modelo.fit(X_train, y_train)
 
-predicciones = modelo_regresion.predict(X_test)
-
-error_cuadratico_medio = mean_squared_error(y_test, predicciones)
-r_cuadrado = r2_score(y_test, predicciones)
-
-print("\n--- Resultados de la Evaluación ---")
-
-print(f"Coeficiente de Determinación (R²): {r_cuadrado:.4f}")
+print("Modelo entrenado")
 
 
-import numpy as np
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-mse = mean_squared_error(y_test, predicciones)
-rmse = np.sqrt(mse) 
-mae = mean_absolute_error(y_test, predicciones)
-r2 = r2_score(y_test, predicciones)
+y_pred = modelo.predict(X_test)
 
-print("--- Evaluación Completa del Modelo ---")
-print(f"Error Cuadrático Medio (MSE): {mse:.2f}")
-print(f"Raíz del Error Cuadrático Medio (RMSE): {rmse:.2f}")
-print(f"Error Absoluto Medio (MAE): {mae:.2f}")
-print(f"Coeficiente de Determinación (R²): {r2:.4f}")
+mae  = mean_absolute_error(y_test, y_pred)
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+r2   = r2_score(y_test, y_pred)
 
-plt.figure(figsize=(14, 6))
+print(f"MAE:  {mae:.2f}")
+print(f"RMSE: {rmse:.2f}")
+print(f"R²:   {r2:.4f}")
 
-plt.subplot(1, 2, 1)
-plt.scatter(y_test, predicciones, alpha=0.6, color='blue')
+# grafico para ver que tan bien predice el modelo
+plt.figure(figsize=(9, 6))
+plt.scatter(y_test, y_pred, color='#4ECDC4', alpha=0.6, edgecolor='white')
+plt.plot([y_test.min(), y_test.max()],
+         [y_test.min(), y_test.max()],
+         color='#FF6B6B', linewidth=2, linestyle='--', label='Predicción perfecta')
+plt.xlabel('Valores reales')
+plt.ylabel('Predicciones')
+plt.title('Valores reales vs Predicciones')
+plt.legend()
+plt.show()
 
-plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
-plt.xlabel('Costo Médico Real ($)')
-plt.ylabel('Costo Predicho por el Modelo ($)')
-plt.title('Valores Reales vs. Predichos')
+# que columnas influyen mas en el precio
+coeficientes = pd.DataFrame({
+    'variable': X.columns,
+    'coeficiente': modelo.coef_
+}).sort_values('coeficiente', ascending=False)
 
-plt.subplot(1, 2, 2)
+plt.figure(figsize=(10, 6))
+plt.barh(coeficientes['variable'], coeficientes['coeficiente'],
+         color='#A855F7', edgecolor='white')
+plt.title('Importancia de cada variable en el modelo')
+plt.xlabel('Coeficiente')
+plt.show()
 
-residuos = y_test - predicciones 
-sns.histplot(residuos, kde=True, color='purple')
-plt.xlabel('Error en la Predicción ($)')
-plt.ylabel('Frecuencia')
-plt.title('Distribución de los Residuos')
+# paso 4
+# creo una variable que combina bmi y ser fumador
+df['bmi_smoker'] = df['bmi'] * (df['smoker'] == 'yes').astype(int)
+
+df_modelo2 = pd.get_dummies(df, columns=['sex', 'smoker', 'region'], drop_first=True)
+
+X2 = df_modelo2.drop(columns='charges')
+y2 = df_modelo2['charges']
+
+X_train2, X_test2, y_train2, y_test2 = train_test_split(X2, y2, test_size=0.2, random_state=42)
+
+modelo2 = LinearRegression()
+modelo2.fit(X_train2, y_train2)
+
+print("Modelo mejorado entrenado")
+
+y_pred2 = modelo2.predict(X_test2)
+
+mae2  = mean_absolute_error(y_test2, y_pred2)
+rmse2 = np.sqrt(mean_squared_error(y_test2, y_pred2))
+r2_2  = r2_score(y_test2, y_pred2)
+
+print("MODELO ORIGINAL:")
+print(f"  R²: {r2:.4f} | MAE: {mae:.2f} | RMSE: {rmse:.2f}")
+print()
+print("MODELO MEJORADO:")
+print(f"  R²: {r2_2:.4f} | MAE: {mae2:.2f} | RMSE: {rmse2:.2f}")
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+axes[0].scatter(y_test, y_pred, color='#4ECDC4', alpha=0.5, edgecolor='white')
+axes[0].plot([y_test.min(), y_test.max()],
+             [y_test.min(), y_test.max()],
+             color='#FF6B6B', linewidth=2, linestyle='--')
+axes[0].set_title(f'Modelo original — R²: {r2:.4f}')
+axes[0].set_xlabel('Valores reales')
+axes[0].set_ylabel('Predicciones')
+
+axes[1].scatter(y_test2, y_pred2, color='#A855F7', alpha=0.5, edgecolor='white')
+axes[1].plot([y_test2.min(), y_test2.max()],
+             [y_test2.min(), y_test2.max()],
+             color='#FF6B6B', linewidth=2, linestyle='--')
+axes[1].set_title(f'Modelo mejorado — R²: {r2_2:.4f}')
+axes[1].set_xlabel('Valores reales')
+axes[1].set_ylabel('Predicciones')
 
 plt.tight_layout()
 plt.show()
-
-
 
